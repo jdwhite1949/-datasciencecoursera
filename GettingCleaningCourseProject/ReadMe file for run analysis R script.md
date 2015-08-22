@@ -24,7 +24,7 @@ This description is from the original README.txt file supplied with original dat
 ### Subset of data used for this analysis ###
 The subset of data returned by the "run_analysis.R" script had 81 variables with 180 observations (rows). At the end of this document is a list of the variables, their class/type, and some sample values for each variable (column) 
 
-## Process of the "run_analysis. R" script ##
+### Process of the "run_analysis. R" script ###
 The following is the step by step process initiated by the "run_analysis" script:
 
 [1] required data files from UCI HAR Dataset are loaded into variables: X\_train, X\_test, y\_train, y\_test, features, and activity\_labels (all of these data sets are in text files)<br/>
@@ -38,7 +38,7 @@ The following is the step by step process initiated by the "run_analysis" script
 [9] write final tidy data set to text file<br/>
 [10] remove all variables from environment (clean up)
 
-##Summary of the variables within the final data set##
+###Summary of the variables within the final data set###
 
 [1] "var_name | var_type | min | avg | median | max"                                           
  [2] "--- | --- | --- | --- | --- | ---"                                                        
