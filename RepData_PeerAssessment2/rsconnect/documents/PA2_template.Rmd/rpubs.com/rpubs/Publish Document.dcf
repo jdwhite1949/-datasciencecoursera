@@ -1,0 +1,7 @@
+name: Publish Document
+account: rpubs
+server: rpubs.com
+bundleId:
+        https://api.rpubs.com/api/v1/document/120342/483fd035163742c7810ff598fbcf9172
+url: http://rpubs.com/jwhite1949/120342
+when: 1445706899.1123

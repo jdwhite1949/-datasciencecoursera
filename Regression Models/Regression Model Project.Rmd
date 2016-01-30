@@ -1,0 +1,198 @@
+---
+title: "Regression Model Course Project"
+author: "Jim White"    
+date: December 23, 2015
+output: html_document
+---
+
+####<span style = "color:blue">Executive Summary</span>####
+In 1974 Motor Trend, a magazine about the automobile industry was interested in exploring the relationship between a set of variables and miles per gallon (MPG) (outcome). They were particularly interested in the following two questions:
+
+1. Is an automatic or manual transmission better for MPG?
+2. Quantify the MPG difference between automatic and manual transmissions
+
+An analysis was completed using regression models and exploratory data analysis. Based on this analysis, the affect of predictor variables other tham "am" on the response "mpg" make it difficult to answer the questions directly. During exploratory analysis (see Figure 1 in appendix), apparent differences do appear to occur. Further analysis, using all of the predictor variables in the data set and linear modeling techniques, proved isolating the "am" effect on "mpg" difficult. A multivariate model was developed using the predictor variables am, cyl, wt, and hp.
+
+```{r echo=FALSE}
+# load ncessay library
+suppressMessages(library(ggplot2)); suppressMessages(library(car)); library(stats); suppressMessages(library(stargazer)); library(scatterplot3d) 
+```
+
+####<span style = "color:blue">Exploratory Analysis</span>####
+The data set contains 32 observations with 11 variables. A brief statistical description of the data set variables can be found in <u>Table 1 Descriptive Statistics</u> in the appendix. Also, from this brief examination, some variables appear to be <span style="color:red"><strong>categorical</strong></span> (cyl, vs, am, gear, carb) and some are <span style="color:green"><strong>continuous</strong></span> (mpg, disp, hp, drat, wt, qsec). For further exploratory analysis, the categorical variables werer changed to factor variables.
+```{r echo=FALSE}
+data("mtcars")
+mtcars.sub <- mtcars # copy of dataset to change categorical variables to factor class
+# convert categorical variables to factors
+mtcars.sub$cyl <- as.factor(mtcars.sub$cyl); mtcars.sub$vs <- as.factor(mtcars.sub$vs)
+mtcars.sub$am <- as.factor(mtcars.sub$am); mtcars.sub$gear <- as.factor(mtcars.sub$gear)
+mtcars.sub$carb <- as.factor(mtcars.sub$carb)
+```
+
+Perhaps the first step should be to compare the "mpg"" responses against the "am"" predictor for each of the types of transmission. In <u>Figure 1 Transmission Type and MPG</u> (located in the appendix), a relationship appears to be straightforward between transmission types and mpg results; hypothesis testing was used to determine if the means are different.
+
+$\huge H_{0}: \mu_{auto} = \mu_{manual}$&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$\huge H_{a}: \mu_{auto} < \mu_{manual}$<br/>
+```{r echo=FALSE}
+auto <- subset(mtcars, am == 0, select = c(mpg)) # subset auto data
+manual <- subset(mtcars, am == 1, select = c(mpg)) # subset manual data
+mean.auto <- round(mean(auto$mpg), 2)
+mean.manual <- round(mean(manual$mpg), 2)
+diff <- round(mean.manual-mean.auto, 2)
+t.results <- t.test(auto, manual, alternative = c("less")) # run the t-test
+```
+<u>The t-test results are</u>:<br/>
+With a 95% confidence interval, the p-value is `r round(t.results$p.value, 5)`, consequently, the null hypothesis can be rejected. The average value for mpg for auto trans = `r mean.auto` and the average value for mpg for manual trans = `r mean.manual`. *A difference of* `r diff` *in favor of the manual transmission*.
+
+While a clear difference exists between the means $\mu_{manual}$ and $\mu_{auto}$ other variables may be further influencing the "mpg" response. The next step is to examine any relationship that may exist among all of the variables in the dataset.
+
+*<u>Variable Relationships</u>*
+Correlation is used to determine if possible relationships appear to exist between any of the variables and "mpg". Both positive and negative significant results appear for most of the predictor variables and "mpg.""
+```{r echo=FALSE}
+mtcars.cor <- mtcars # create new mtcars variable to calc correlations
+cormatrix <- round(cor(mtcars.cor), 2)
+cormatrix[1,]
+```
+
+When examining the relationship of "am" to other variables in the data set, the results (below) indicate that <u>"am" has a significant positive or negative correlation with gear, drat, wt, disp, and cyl</u>. This is possible evidence that some of the predictor variables other than "am" influence the "mpg" results - creating concerns about quantifying the differences in auto or manual transmission influences.
+```{r echo=FALSE}
+cormatrix[,9]
+```
+
+<u>Note</u>: At this point the "qsec" variable (1/4 mile time) is removed from the dataset. An explanation is provided in the appendix in the *Description of Variables* section. 
+```{r echo=FALSE}
+mtcars.woqsec <- mtcars[, -7] # create subset of ntcars without qsec variable
+```
+
+####<span style = "color:blue">Regression and Residual Analysis</span>####
+One way to measure to relationship between "am" on "mpg" is to use a simple linear model and calculate $R^{2}$ (coefficient of determination). That results follows:
+```{r echo=FALSE}
+rsqd <- summary(lm(mpg~am, data = mtcars))$r.squared
+```
+The R-squared result from the single variable regression model = `r round(rsqd, 4)`. The $R^{2}$ value result appears to indicate the transmission type "am"" has only a minor impact on "mpg"" and other variables apparently contribute to the "mpg" results. <u>Thus providing straightforward answers to the two Motor Trend questions will be difficult</u>.
+
+Further evidenced is provided by comparing the coefficients for "am", 1) first when only "am" is used in the linear model to predict "mpg", and 2) second the coefficient for "am" when all of the variables are included in the linear model. The results follow:
+```{r echo=FALSE}
+coef.only <- summary(lm(mpg~am, data = mtcars.woqsec))$coefficients[2,1]
+```
+[1] am coefficient (linear model) with only am and mpg: `r round(coef.only, 3)`
+
+```{r echo=FALSE}
+coef.all <- summary(lm(mpg~., data = mtcars.woqsec))$coefficients[8,1]
+```
+[2] am coefficient (linear model) including all variables [except qsec]: `r round(coef.all, 3)`.
+
+Accounting for other variables should not change the relationship between the predictor (am) and the response (mpg), unless covariance exists between predictor variables. The above results indicate that predicting "mpg"" from transmission type (am) alone may be difficult due to the influence of other predictor variables on the mpg response.
+
+<br/><br/>
+*<span style = "color:purple">Residuals, Diagnostics, and Variation</span>*<br/>
+Before determining which predictor variables should be included in a model to predict "mpg", an analysis of the residuals may be helpful. <u>The first step may be to determine model fit or lack thereof</u>. This can be done by examining the charts in <u>Figure 2 Residual Analysis</u> (located in the appendix). The model used in this analysis includes all of the variables except "qsec."
+
+Description of <u>Figure 2 Residual Analysis</u> (appendix): The *Residuals vs Fitted* plot may indicate some lack of linearity influenced by values on the right end of the chart. The *Scale Location* chart tends to indicate some level of heteroscedasticity in which some parts of the data appear to have different variabilities than others. The *QQ Plot* appears to indicate a normal distributions for the residuals (as should be expected). In the *Residuals vs Leverage* plot, there does not appear to be any points of significant influence or leverage.
+
+Also, when running the **hatvalues** function (from the stats package), there are no points in the data identified as having enough leverage to influence model fit. (<u>Table 2 Results of hatvalues Function</u> are in the appendix.)
+
+*<span style = "color:purple">Model Fitting</span>*<br/>
+When evaluating which variables to include in building a model, one step is to include an <u>analysis of the variance inflation factor (vif)</u>. In this case the standard deviation inflation factor is examined (the sqrt of the vif). If the predictor variables are not related (not correlated), then the values reported should be close to 1.
+```{r echo=FALSE}
+lm.fit <- lm(mpg~., data = mtcars.woqsec)
+round(sqrt(vif(lm.fit)), 2)
+```
+The results can be interpreted as follows: e.g., the "disp"" variable standard error is four times what it would be if it were not correlated with other variables. Most of the predictor variables results are high indicating significant correlations between predictor variables. This makes model selection difficult.
+
+Model selection for this analysis uses the <u>nested model approach</u>, where one's interest is in how one predicator variable affects the response variable, and how adding other predictor variables affects the model. This process along with an anova calculation was conducted and the results follow. (Table 3 Results for All Models is located in the appendix.) The results recorded here are based on the selection of the predictor variables that appear to create the best model. Models 2 or 3 (below) may be the best choices.
+```{r echo=FALSE}
+model.10 <- lm(mpg~am, data = mtcars.woqsec)
+model.11 <- update(model.10, mpg~am+cyl+hp)
+model.12 <- update(model.10, mpg~am+cyl+wt+hp)
+anova.results <- anova(model.10, model.11, model.12)
+F.values <- anova.results$F
+p.values <- anova.results$'Pr(>F)'
+anova.table <- data.frame(Model = c("Model 1", "Model 2", "Model 3"), Predictors = c("am", "am + cyl + hp", "am + cyl + wt + hp"), F_Values = F.values, p_values = p.values)
+anova.table
+```
+Finally, a 3D Model representation of Model 2, just for fun. Apparently, heavier cars tend to have automatic transmissions and get less miles per gallon.
+```{r echo=FALSE}
+mtcars$pcolor[mtcars$am==0] <- "red"
+mtcars$pcolor[mtcars$am==1] <- "blue"
+with(mtcars, {
+    s3d <- scatterplot3d(wt, cyl, mpg,        # x y and z axis
+                  color=pcolor, pch=19,        # circle color indicates type of trans
+                  type="h", lty.hplot=2,       # lines to the horizontal plane
+                  scale.y=.75,                 # scale y axis (reduce by 25%)
+                  main="MPG Estimate Three Predictors",
+                  xlab="Weight (lb/1000)",
+                  ylab="Number of Cylinders",
+                  zlab="Miles/(US) Gallon")
+     s3d.coords <- s3d$xyz.convert(cyl, wt, mpg)
+# add the legend
+legend("top", inset=.05,      # location and inset
+    bty="n", cex=.7,              # suppress legend box, shrink text 50%
+    title="Transmission Type",
+    c("auto", "manual"), fill=c("red", "blue"))
+})
+```
+</center>
+
+<p style="page-break-after:always;"></p>
+
+<br/><br/>
+
+####Appendix####
+*Description of Variables*: [1] mpg = Miles/(US) gallon, [2] cyl = Number of cylinders, [3] disp = Displacement (cu.in.), [4] hp = Gross horsepower, [5] drat = Rear axle ratio, [6] wt = Weight (1000 lbs), [7] qsec = 1/4 mile time, [8] vs V/S (piston position, v shaped or straight; V=0, S=1), [9] am = Transmission (0 = automatic, 1 = manual), [10] gear = Number of forward gears, [11] carb = Number of carburators.
+
+The "qsec" variable was removed from the data set because the time for running the quarter mile is more likely related to hp, which in turn is likely related to the other predictor variables. While "qsec" and "mpg" may be correlated, the likelihood is that they are both dependent upon the same predictors.
+
+**Table 1 Descriptive Statistics**
+```{r echo=FALSE}
+data("mtcars")
+stargazer(mtcars, type = "text")
+```
+<table><tr><td>
+**Figure 1 Transmission Type and MPG**<br/>
+```{r echo=FALSE, fig.height=4, fig.width=4}
+g1 <- ggplot(mtcars.sub, aes(x=am, y=mpg, fill=am)) + geom_boxplot()
+g1 <- g1 + labs(title = "Transmission Type and MPG Results") 
+g1 <- g1 + labs(y = "Miles per Gallon (MPG)")
+g1 <- g1 + labs(x = "Transmission type (0=auto, 1=manual)")
+g1 <- g1 + scale_fill_discrete(name = "Trans\nType", labels = c("Auto", "Manual")) 
+g1 <- g1 + theme(plot.title = element_text(size = 10, face = "bold"),
+               axis.title.x = element_text(size = 9, face = "bold"),
+               axis.title.y = element_text(size = 9, face = "bold"),
+               axis.text.y = element_text(size = 9, face = "bold"))
+g1    
+```
+</td><td>
+**Figure 2 Residual Analysis**<br/>
+```{r echo=FALSE, fig.height=5, fig.width=5}
+par(mfrow = c(2,2)) # parameters for positioning charts
+lm.fit <- lm(mpg~., data = mtcars.woqsec) # the linear model
+plot(lm.fit)
+
+```
+</td></tr></table>
+<p style="page-break-after:always;"></p>
+<br/><br/>
+**Table 2 Results of hatvalues Function:**
+```{r echo=FALSE, set-options}
+options(width = 100)
+hatvalues(lm.fit)
+```
+Astericks would identify data points with influence (none are apparent)
+
+**Table 3 Results of anova test on various models created by incrementally adding in predictor variables:**
+```{r echo=FALSE}
+model.1 <- lm(mpg~am, data = mtcars.sub)
+model.2 <- update(model.1, mpg~am+cyl)
+model.3 <- update(model.1, mpg~am+cyl+disp)
+model.4 <- update(model.1, mpg~am+cyl+disp+hp)
+model.5 <- update(model.1, mpg~am+cyl+disp+hp+drat)
+model.6 <- update(model.1, mpg~am+cyl+disp+hp+drat+wt)
+model.7 <- update(model.1, mpg~am+cyl+disp+hp+drat+wt+vs)
+model.8 <- update(model.1, mpg~am+cyl+disp+hp+drat+wt+vs+gear)
+model.9 <- update(model.1, mpg~am+cyl+disp+hp+drat+wt+vs+gear+carb)
+anova(model.1, model.2, model.3, model.4, model.5, model.6, model.7, model.8, model.9)
+```
+
+```{r echo=FALSE}
+rm(list = ls())  #clean up the environment
+```

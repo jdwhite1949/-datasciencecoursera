@@ -1,0 +1,216 @@
+---
+title: "Health and Economic Effects of Storm Events"
+author: "Jim White"
+date: "October 21, 2015"
+output: html_document
+---
+
+###Synopsis###
+This report makes use of a dataset from the National Weather Service & National Climatic Data Center Storm Events. The construction and definition of the variables in the data can be found at [Storm Data Documentation][1] and FAQs from the [Climatic Data Center][2]. The purpose of this analysis was to determine the weather events that have the most effect on health (fatalities and injuries) and economy (property and crop damage). The event types having the greates impact on fatalities for the period between 1996 and 2011 were excessive heat, tornados, and flash floods. The greatest number of injuries are due to tornados. Not surprisingly, hail creates the greatest amount of economic loss for crops, followed by flooding. The largest contributors to property loss are thunderstorm winds, flooding, and tornados.
+
+[1]: (https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+[2]: (https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+###Loading and Processing the Data###
+
+**Data Description**
+The original dataset was a csv file with 902,297 observations and 37 variables and represents the years from 1950 to 2011. Prior to 1996, the data collected was not representative of the 48 event types as defined by the [NWS Directive 10-1605][3], consequently years prior to 1996 will be ommitted from the analysis (they would not be comparable). The latest date in the dataset is 11-30-2011. Recent years may represent more relevant information. The transformed dataset used for the analysis represents 653,529 observations with 7 variables.
+
+[3]: (https://www.ncdc.noaa.gov/stormevents/pd01016005curr.pdf)
+
+The variables included in the transformed dataset are:
+    
+    1. EVTYPE - type of meterological event (48 different types available)
+    2. END_DATE - the end date of the event
+    3. FATALITIES - the number of deaths related to the event (individuals)
+    4. INJURIES - the number of injuries related to the event (individuals)
+    5. PROPDMG - estimated amount of damage to property due to the event (thousands of dollars)
+    6. CROPDMG - estimated amount of damage to crops due to the event (thousands of dollars)
+
+**Requirements**
+This analysis requires the use of these packages: dplyr, gridExtra, ggplot2
+
+Preliminaries - loading necessary libraries
+```{r loadlibraries, echo=TRUE}
+suppressMessages(library(dplyr))
+library(gridExtra)
+library(ggplot2)
+```
+
+**Data Processing**
+First download the file and load into R as activity_data variable. Only load those columns (variables) relative to answering the data analysis questions. This part of the process will takes a few minutes because of the size of the original data file.
+```{r getfile, echo=TRUE}
+download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "stormData.bz2")
+activity_data <- read.csv("StormData.bz2")[, c(8, 12, 23, 24, 25, 27)]
+```
+
+Transform EVTYPE & END_DATE variables to character and date types, respectively, and PROPDMG & CROPDMG to integer format
+```{r echo=TRUE}
+activity_data$EVTYPE <- as.character(activity_data$EVTYPE)
+activity_data$END_DATE <- as.Date(activity_data$END_DATE, "%m/%d/%Y ")
+activity_data$PROPDMG <- as.integer(activity_data$PROPDMG)
+activity_data$CROPDMG <- as.integer(activity_data$CROPDMG)
+```
+
+Remove records with END_DATE = NA and any date < year 1996 (see explanation above about events prior to 1996)
+```{r echo=TRUE}
+activity_data_sub <- subset(activity_data, !is.na(END_DATE) & END_DATE > as.Date("1995-12-31"))
+```
+
+Group the dataset by the ENVTYPE variable and sum the fatalities, injuries, property, and crop damage variables to find the EVTYPES that create the greatest health and economic effects.
+```{r echo=TRUE}
+# summarize and grouped by EVTYPE
+summary_data <- activity_data_sub %>% group_by(EVTYPE) %>% summarize(fatal = sum(FATALITIES), injury = sum(INJURIES), propdmg = sum(PROPDMG), cropdmg = sum(CROPDMG))
+```
+
+Indentify dimensions of the summary data 
+```{r}
+dim(summary_data)
+```
+
+The 516 event types identified in the summary data set indicate that there are still event types that are miscoded.
+
+Examine a summary of the data set
+```{r echo=TRUE}
+summary(summary_data)
+```
+
+We see that three of the four variables have values of 0 (zero) through the 3rd quartile (75% of the event types). This indicates that many of the event types do not have any health of economic concerns associated with them. 
+
+Each of the four variables are subset as a preparation for providing charts.
+```{r echo=TRUE}
+# subset fatalities and sort decreasing
+fatal_events <- summary_data[, c(1, 2)]
+# sort descending order and select top 15 types
+fatal_events <- fatal_events[head(order(fatal_events$fatal, decreasing = TRUE), n = 15L),]
+
+# subset injuries and sort decreasing
+injury_events <- summary_data[, c(1, 3)]
+# sort descending order and select top 15 types
+injury_events <- injury_events[head(order(injury_events$injury, decreasing = TRUE), n = 15L),]
+
+# subset property damage and sort decreasing
+propdmg_events <- summary_data[, c(1, 4)]
+# sort descending order and select top 15 types
+propdmg_events <- propdmg_events[head(order(propdmg_events$propdmg, decreasing = TRUE), n = 15L),]
+
+# subset crop damage and sort decreasing
+cropdmg_events <- summary_data[, c(1, 5)]
+# sort descending order and select top 15 types
+cropdmg_events <- cropdmg_events[head(order(cropdmg_events$cropdmg, decreasing = TRUE), n = 15L),]
+```
+
+###Results Section###
+This section provides charts and tables indicating the EVTYPEs that create the greatest health and economic risk.
+
+**Question 1** - Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+Figure 1. Charts of top 15 weather types and their health effects (fatalities & injuries)
+```{r out.height='300', echo=TRUE}
+# for fatalities
+g1 <- ggplot(fatal_events, aes(EVTYPE, fatal/1000))
+g1 <- g1 + geom_bar(stat = "identity", fill = "red")
+g1 <- g1 + labs(title = "Fatalities by EVTYPE \n Top 15 Types") 
+g1 <- g1 + labs(y = "Number of Fatalities (thousands)")
+g1 <- g1 + theme(plot.title = element_text(size = 14, face = "bold"),
+               axis.title.x = element_blank(),
+               axis.title.y = element_text(size = 12, face = "bold"),
+               axis.text.x = element_text(colour = "black", angle = 60, hjust = 1),
+               axis.text.y = element_text(size = 12, face = "bold"))
+
+# for injuries
+g2 <- ggplot(injury_events, aes(EVTYPE, injury/1000))
+g2 <- g2 + geom_bar(stat = "identity", fill = "yellow", colour = "black")
+g2 <- g2 + labs(title = "Injuries by EVTYPE \n Top 15 Types") 
+g2 <- g2 + labs(y = "Number of Injuries (thousands)")
+g2 <- g2 + theme(plot.title = element_text(size = 14, face = "bold"),
+               axis.title.x = element_blank(),
+               axis.title.y = element_text(size = 12, face = "bold"),
+               axis.text.x = element_text(colour = "black", angle = 60, hjust = 1),
+               axis.text.y = element_text(size = 12, face = "bold"))
+
+grid.arrange(g1, g2, ncol = 2)
+```
+
+As can be seen by examining Figure 1, the greatest number of fatalities occur during excessive heat events and the greatest number of injuries during tornado events (which is not surprising). A significant number of fatalities also occur due to flooding (represented by the types of "flash flood and flood") and lightning. A list of the top event types and associated fatalities and injuries following the figure.
+
+The top 15 event types for fatalities and injuries
+<table><tr>
+<td>
+```{r echo=TRUE}
+fatal_events
+```
+</td><td>
+```{r echo=TRUE}
+injury_events
+```
+</td></tr></table>
+
+The top 15 event types for fatalities and injuries represent a significant amount of the totals from the activity_data_sub dataset. One concern when doing the analysis was that when the data was summarized by the EVTYPEs, 516 types emerged - many of these are due to misspellings for the EVTYPE variable.
+
+The following calculates the 15 top event totals (for fatalities and injuries) compared to the totals for all records in the relelvant variables of the activity_date_sub dataset:
+```{r echo=TRUE}
+x <- sum(fatal_events$fatal)/sum(activity_data_sub$FATALITIES)
+paste("The top 15 event type fatalities as a percent of the total fatalities = ", round(x*100, 0), "%")
+y <- sum(injury_events$injury/sum(activity_data_sub$INJURIES))
+paste("The top 15 event type injuries as a percent of the total injuries = ", round(y*100, 0), "%")
+```
+
+The 15 top event types represent 84% of the fatalities and 91% of the injuries recorded for all 48 events in the dataset.
+
+**Question 2** - Across the United States, which types of events have the greatest economic consequences?
+
+Figure 2. Charts of top 15 weather types and their economic effects
+```{r out.height='300', echo=TRUE}
+# for property damage
+g3 <- ggplot(head(propdmg_events, n = 15L), aes(EVTYPE, propdmg/1000000))
+g3 <- g3 + geom_bar(stat = "identity", fill = "blue")
+g3 <- g3 + labs(title = "Property Damage ($) by EVTYPE \n Top 15 Types") 
+g3 <- g3 + labs(y = "Dollars (billions)")
+g3 <- g3 + theme(plot.title = element_text(size = 14, face = "bold"),
+               axis.title.x = element_blank(),
+               axis.title.y = element_text(size = 12, face = "bold"),
+               axis.text.x = element_text(colour = "black", angle = 60, hjust = 1),
+               axis.text.y = element_text(size = 12, face = "bold"))
+
+# for crop damage
+g4 <- ggplot(head(cropdmg_events, n = 15L), aes(EVTYPE, cropdmg/1000))
+g4 <- g4 + geom_bar(stat = "identity", fill = "cyan", colour = "black")
+g4 <- g4 + labs(title = "Crop Damage ($) by EVTYPE \n Top 15 Types") 
+g4 <- g4 + labs(y = "Dollars (millions)")
+g4 <- g4 + theme(plot.title = element_text(size = 14, face = "bold"),
+               axis.title.x = element_blank(),
+               axis.title.y = element_text(size = 12, face = "bold"),
+               axis.text.x = element_text(colour = "black", angle = 60, hjust = 1),
+               axis.text.y = element_text(size = 12, face = "bold"))
+
+grid.arrange(g3, g4, ncol = 2)
+```
+
+As can be seen by Figure 2, the greatest total economic effect occurs during thunderstorms (event types "thunderstorm wind" plus "TSTM wind") and flooding ("flash floods" plus "floods"). Tornado events also cause significant damage - though the occur less frequently. The events causing the most crop damage is hail (not surprising) and flooding. A more complete list of event types (the top 20) and associated fatalities and injuries following the figure.
+
+The top 15 event types for economic loss
+<table><tr>
+<td>
+```{r echo=TRUE}
+propdmg_events
+```
+</td><td>
+```{r echo=TRUE}
+cropdmg_events
+```
+</td></tr></table>
+
+The top 15 event types for economic effect represent a significant amount of the totals from the activity_data dataset (as with the health concerns)
+
+The following calculates the 15 top event totals (for property and crop damages) compared to the totals for all records in the relelvant variables of the activity_data_sub dataset:
+```{r echo=TRUE}
+z <- sum(propdmg_events$propdmg)/sum(activity_data_sub$PROPDMG)
+paste("The top 15 event types related to property damage as a percent of the total property damage = ", round(z*100, 0), "%")
+w <- sum(cropdmg_events$cropdmg/sum(activity_data_sub$CROPDMG))
+paste("The top 15 event types of related to crop damage as a percent of the total crop damages = ", round(w*100, 0), "%")
+```
+
+The 15 top events represent 96% of the property damage (dollars) and 97% of the crop damage (dollars) in the activity_data_sub dataset.
+
+

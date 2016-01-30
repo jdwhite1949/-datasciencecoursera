@@ -1,0 +1,298 @@
+---
+title: "Machine Learning Assignment"
+author: "Jim White"
+date: "January 29, 2016"
+output: html_document
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+###Introduction and Background###
+This analysis was based on the research by Velloso, et al., *Qualitative Activity Recognition of Weight Lifting Exercises*, in which their research investigated the quality of executing an exercise activity. The data used in this analysis can be found at the following locations: [training][1] and [testing][2] (links). The training dataset contains 19622 obs with 160 variables and the test data set contains 20 obs with 160 variables. The *classe* variable in the datasets is the response variable and indicates quality of performing the activity with values of "A" for correct performance and B through E some type of incorrect action. The methods found to be most effective in predicting the values in the testing dataset were *random forest* and *C5.0 algorithm*.
+
+[1]: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+[2]: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+###Exploratory Analysis and Subsetting the Data###
+The code for acquisition of the dataset files for this assignment can be found in the *downloadMLfiles.R* file (same directory as this document). First, load training data:
+```{r}
+# load files into variables
+pm1_training <- read.csv("pm1-training.csv")
+```
+Perhaps the first examination that can be made is to compare the users against the outcomes. And the total number of correct outcomes against the total number of outcomes with errors.
+
+Outcomes by individual participant are as follows:
+```{r}
+sum.results <- as.data.frame.matrix(table(pm1_training$user_name, pm1_training$classe))
+sum.results["Total", ] <- colSums(sum.results)
+sum.results[ ,"Total"] <- rowSums(sum.results)
+sum.results
+```
+
+After checking the variable names of the training dataset, the following was concluded: a) columns in dataset not related to actual measurements were *X* (obs num), *user_name*, three time stamp related variables, two variables related to window time slices, b) measurement variables represented by belt (vars 8:45), arm (46:83), dumbell (84:121), and forearm (122:159), and c) the outcome variable is *classe* (var 160);
+
+Next, check for observations with missing values:
+```{r}
+obs.miss <- pm1_training[!complete.cases(pm1_training),]
+```
+Number of rows with missing data = `r dim(obs.miss)[2]`. What to do about this issue? First determine which columns/features may have significant number of NAs or NULL values.
+```{r}
+col.with.na <- data.frame("col_num"=character(), "col_name"=as.character(), 
+                num_na = as.integer(), stringsAsFactors = FALSE)
+for(i in 1:dim(pm1_training)[2]){
+    sum.na <- sum(is.na(pm1_training[,i]))
+    if (sum.na > 0){
+        col.with.na[nrow(col.with.na)+1, ] <- c(i, names(pm1_training[i]), sum.na)
+    }
+}
+rm(i, sum.na, obs.miss, sum.results)  # clean up vars
+```
+Number of columns/features with significant number of missing values = `r dim(col.with.na)[1]`. Since missing values are many for these variables they will be excluded from the dataset.
+```{r}
+# variables with large number of NAs removed from dataset
+vals.rm <- unique(col.with.na$num_na)
+pm1_training_V2 <- pm1_training[, colSums(is.na(pm1_training)) != vals.rm]
+```
+
+Several of the variables are classified as factor variables when clearly they are numeric. For example:
+```{r}
+str(pm1_training_V2[,11:20])
+```
+In addition the columns that are classed *factor* only have values where the variable *new_window* = yes. The *new_window* = yes represents `r dim(subset(pm1_training_V2, pm1_training_V2$new_window == "yes"))[1]` observations. All other observations are NULL for these *factor* variables. Consequently, these variables will be removed from the pm1-training-V2 dataset.
+```{r}
+pm1_training_V2 <- pm1_training_V2[sapply(pm1_training_V2, function(x) !is.factor(x))]
+# add back classe variable
+pm1_training_V2$classe <- pm1_training$classe
+rm(vals.rm, col.with.na, pm1_training)
+```
+And removing the columns that represent sequential numbering data (i.e., X, "raw_timestamp_part_1", "and num_window").
+```{r}
+pm1_training_V2 <- pm1_training_V2[, -c(1:4)]
+```
+The remaining number of variables = `r dim(pm1_training_V2)[2]`, including the response variable.
+
+As a final process to reduce the number of predictor variables in the training set, principal component analysis will be used. The first step is to look for all predictor variables that have a high correlation (similar to each other)
+```{r}
+M <- cor(pm1_training_V2[, -53]) # predictor variables only
+diag(M) <- 0  # remove the correlations of 1 - vars with themselves
+M[lower.tri(M)] <- 0  # slect the lower half of the matrix to eliminate dupliaction
+var.high.corr <- as.data.frame(which(abs(M) > 0.9, arr.ind = T)) # select vars with cor > 0.9
+names(var.high.corr) <- c("row.num", "col.num") # assign names to columns
+var.high.corr <- var.high.corr[order(var.high.corr$row.num),]
+# build and add var names related to col.num results and the associated correlation
+len <- length(var.high.corr$row.num); cor.result <- as.vector(NULL) 
+var.name <- as.vector(NULL); var.name.tmp <- as.character(NULL); i <- 1
+while(i <= len){
+    corr <- round(M[var.high.corr$row.num[i], var.high.corr$col.num[i]], 5)
+    cor.result <- c(cor.result, corr)
+    var.name.tmp <- colnames(pm1_training_V2[var.high.corr$col.num[i]])
+    var.name <- c(var.name, var.name.tmp)
+    i <- i+1
+}
+var.high.corr$cor.result <- cor.result
+var.high.corr$col.var.name <- var.name
+var.high.corr
+rm(list = setdiff(ls(), "pm1_training_V2")) # clean up environment
+```
+
+Consequently, we can see that 11 predictor variables (above) are highly correlated (> 0.90 or < -0.90) with at least one other predictor variable. These high correlations may indicate multicollinearity between the predictor variables, which in modelling may have severe consequencies. This may be less true in classification models, and especially in random forests, which use a random sampling method. However in an effort to have modest variable selection, VIF (variance inflation factors) will be calculated to determine if more variables can be eliminated from the data based on high collinearity issues.
+
+VIF calculations (predictor varibles only): (vif.values > 11 will be removed)
+```{r}
+library(usdm)
+set.seed(123)
+vif.values <- vif(pm1_training_V2[, -53]) # calculate vif
+# rule of thumb for high multicollinearity is 10; used 11 because 5 vars were between 10 & 11
+vif.exclude <- subset(vif.values, vif.values$VIF > 11) 
+# remove columns identified in vif.exclude
+col.exclude <- as.numeric(row.names(vif.exclude))
+pm1_training_V3 <- pm1_training_V2[, -c(col.exclude)]
+rm(list = setdiff(ls(), "pm1_training_V3")) # clean up environment
+```
+Number of predictor variables remaining in our dataset = `r dim(pm1_training_V3)[2]-1`
+
+For a final examination of the remaining predictor variables, skewness, normality, and kurtosis will be tested. First the shapiro-wilks test is administered to the predictor variables:
+```{r}
+norm.test <- as.vector(NULL)
+predictors <- ncol(pm1_training_V3) - 1
+for(i in 1:predictors){
+    samp <- sample(pm1_training_V3[, 1], 4999, replace = FALSE)
+    y <- shapiro.test(samp)
+    norm.test <- c(norm.test, y$p.value)
+}
+norm.test
+```
+Since p-values less than 0.05 represents a deviation from normality, we can conclude no predictor variables are normally distributed.
+
+Next a test of skewness:
+```{r}
+library(e1071)
+var.skew <- as.vector(NULL)
+predictors <- ncol(pm1_training_V3) - 1
+for(i in 1:predictors){
+    x <- skewness(pm1_training_V3[, i])
+    var.skew <- c(var.skew, x)
+}
+var.skew
+```
+Skewness values > 1 or < -1 are significant. Most predictors are not significantly skewed.
+
+Next a test of kurtosis (or peakedness)
+```{r}
+var.kurtosis <- as.vector(NULL)
+predictors <- ncol(pm1_training_V3) - 1
+for(i in 1:predictors){
+    x <- kurtosis(pm1_training_V3[, i])
+    var.kurtosis <- c(var.kurtosis, x)
+}
+var.kurtosis
+rm(list = setdiff(ls(), "pm1_training_V3")) # clean up environment
+```
+Values < 3 tend to a uniform distribution, and > 3 to a LaPlace distribution. This supports the shapiro-wilks test for normality.
+
+These statistical results provide an inteersting picture of the predictor variables. In addition, the 17th predictor variable `r names(pm1_training_V3[17])` may have an outlier or incorrect value (note significantly high values in kurtosis and skewness). Decision was made to not remove any more data from the dataset.
+
+###Cross Validation###
+The final training dataset (with 27 predictor variables) was split into a training and testing sets for the purposes of cross validation. Different models will be explored and compared.
+```{r}
+library(caret)
+inTrain <- createDataPartition(pm1_training_V3$classe, p=0.7, list=FALSE)
+training <- pm1_training_V3[inTrain,]
+testing <- pm1_training_V3[-inTrain,]
+rm(inTrain, pm1_training_V3)
+```
+Since the outcome/response variable is nominal (categorical), classification methods were used in the modeling process. The methods explored were *rpart* (partitioning tree), *gbm* (gradient boost machine), *C5.0* (a classification tree), and *random forest* (popular classification method).
+
+Since the training dataset has several predictor variables, parallel processing was used to speed up the train function for methods that allow parallel processing. Both *set.seed* and *trainControl* functions were used for consistency between the models. The control method used was *repeated cross validation*, the number of folds were set to 10 and the number of completed sets of folds to 3. Output from each method was saved to a RData file for easier access and use for this assignment.
+
+Because the amount of runtime necessary to execute these models with the *caret's train* function was significant, the code for running these models was stored in the *runMethods.R* script file located in the Github directory with this document and was not use in the creation of this markdown document.
+
+Load the four models
+```{r}
+load("modFit_rf.RData"); load("modFit_gbm.RData") 
+load("modFit_C50.RData"); load("modFit_rpart.RData") 
+```
+
+Examine the accuracy and kappa metrics for the different models (measures of observed versus expected accuracy)
+```{r}
+resamps <- resamples(list(RPart=modFit_rpart, C5.0=modFit_C50, GBM=modFit_gbm, 
+                          RF=modFit_rf))
+summary(resamps)[3]
+bwplot(resamps, layout=c(1,2))
+```
+
+Based on the resamps summary and the boxplot, the two models with the highest Accuracy and Kappa metrics appear to be the random forest and the C5.0 algorithms. In addition, the ranges of the Accuracy and Kappa values for these two models are fairly narrow. These models will be used to predict the response variable for the testing dataset.
+
+**Trees from Models**
+```{r}
+# get number of nodes for random forest model and number of rules for C50 model
+library(randomForest)
+rf.trees <- data.frame(getTree(modFit_rf$finalModel, k=2))
+num.trees <- dim(rf.trees)[1]
+C50.rules <- substring(modFit_C50$finalModel$rules, 64, 66)
+```
+Finally, producing a tree from either the random forest or C5.0 models is not possible due to the large number of nodes. Number of nodes in random forest model = `r num.trees`. Number of rules in C50 model = `r C50.rules`. 
+
+###Comparing and Selecting a Model###
+Do prediction on testing dataset using each model
+```{r}
+# clean up environment
+rm(training, modFit_gbm, modFit_rpart, resamps)
+C50.Pred <- predict(modFit_C50, newdata=testing)
+rf.Pred <- predict(modFit_rf, newdata=testing)
+```
+
+Create confusion matrix and Examine results for each model
+```{r}
+CM.C50 <- confusionMatrix(C50.Pred, testing$classe)
+CM.rf <- confusionMatrix(rf.Pred, testing$classe)
+```
+
+**Confusion matrix tables:**
+<table style="border: 1px solid black; padding: 5px;"><tr>
+<th>Random Forest</th><th>C5.0 Algorithm</th></tr>
+<tr><td>
+```{r echo=FALSE}
+CM.rf$table
+paste0("Error rate for random forest = ", 
+       round((dim(testing)[1] - sum(diag(CM.rf$table)))/dim(testing)[1], 4))
+```
+
+</td><td>
+```{r echo=FALSE}
+CM.C50$table
+paste0("Error rate for C5.0 algorithm = ", 
+       round((dim(testing)[1] - sum(diag(CM.C50$table)))/dim(testing)[1], 4))
+```
+</td></tr></table><br/>
+
+These tables indicate that the random forest and C5.0 algorithms were fairly effective in their predictions on the testing dataset. The out of sample errors are very small
+
+**Sensitivity and Specificity tables:**
+Further evidence of model performance:
+<table><tr>
+<th>Random Forest</th><th>C5.0 Algorithm</th>
+<tr><td>
+```{r echo=FALSE}
+SS.rf <- data.frame(CM.rf$byClass)
+SS.rf[,1:2]
+```
+</td><td>
+```{r echo=FALSE}
+SS.C50 <- data.frame(CM.C50$byClass)
+SS.C50[,1:2]
+```
+</td></tr></table><br/>
+Sensitivity is proportion of positives correctly identified; specificity is proportion of negatives correctly identified. 100% represents a perfect predictor.
+
+Finally a look at variance importance (contribution of coefficients weighted proportionally to reduction of sum of squares). Number represents the percent of training set samples falling into the terminal nodes after a split.
+
+For the random forest model only:
+```{r}
+var.Imp.rf <- data.frame(varImp(modFit_rf)$importance)
+var.Imp.rf$var.names <- row.names(var.Imp.rf) # add row names ad variable for ploting
+var.Imp.rf <- var.Imp.rf[order(-var.Imp.rf$Overall), ] # order by importance scores
+library(ggplot2)
+g.rf <- ggplot(data = var.Imp.rf, aes(x = reorder(var.names, -Overall), y = Overall)) 
+g.rf <- g.rf + geom_bar(stat = "identity", fill = "green", color="black")
+g.rf <- g.rf + labs(title = "Random Forest Variable Importance")
+g.rf <- g.rf + labs(y = "% Sample into Terminal Node after Split", x = "")
+g.rf <- g.rf + theme(plot.title = element_text(size = 14, face = "bold"),
+                     axis.title.y = element_text(size=12, face = "bold"),
+                     axis.title.x = element_text(size=12, face = "bold"),
+                     axis.text.x = element_text(angle = 60, size = 12, hjust = 1, face = "bold")
+                     )
+g.rf
+```
+<br/>Note the variable importance (left to right on the bar chart).
+
+###Applying Models to pm1_testing Dataset###
+Load the data set into memory:
+```{r}
+# clean environment of unnecessary values and objects
+rm(list=setdiff(ls(), c("modFit_rf", "modFit_C50")))
+pm1_testing <- read.csv("pm1-testing.csv") # load testing dataset
+vars <- as.vector(modFit_rf$coefnames) # get variable names from model
+pm1_testing <- pm1_testing[, c(vars)] # exclude all variables except for those in model
+
+# predict the classe values for the pm1_testing data set
+pm1.testing.values.rf <- predict(modFit_rf, newdata=pm1_testing)
+pm1.testing.values.C50 <- predict(modFit_C50, newdata=pm1_testing)
+rm(modFit_rf, modFit_C50) # clean up environment
+```
+
+Values predicted by random forest model:
+`r pm1.testing.values.rf`
+
+Values predicted by the C5.0 algorithm:
+`r pm1.testing.values.C50`
+
+<div style="color:red;"><strong>Both models made accurate predictions that agreed with the original (quiz) values for the response variable associated with the pm1_testing dataset.<strong></div>
+<br/><br/>
+
+
+
+
+
+
+
